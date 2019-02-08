@@ -7,12 +7,12 @@ import numpy as np
 import loaddata_demo as loaddata
 import pdb
 
-import matplotlib
-matplotlib.use('Agg')
 import matplotlib.image
 import matplotlib.pyplot as plt
-plt.set_cmap("jet")
+plt.set_cmap("gray")
 
+import parse
+import os
 
 def define_model(is_resnet, is_densenet, is_senet):
     if is_resnet:
@@ -30,6 +30,17 @@ def define_model(is_resnet, is_densenet, is_senet):
 
     return model
 
+def get_files(path, in_template = "{}_color.png", out_template = "{}_pred.png"):
+    in_files = []
+    out_files = []
+    for f in os.listdir(path):
+        match = parse.parse(in_template, f)
+        if match:
+            in_files.append(os.path.join(path, f))
+            out_files.append(os.path.join(path, out_template.format(match[0])))
+    return in_files, out_files
+
+
 
 def main():
     model = define_model(is_resnet=False, is_densenet=False, is_senet=True)
@@ -37,17 +48,26 @@ def main():
     model.load_state_dict(torch.load('./pretrained_model/model_senet'))
     model.eval()
 
-    nyu2_loader = loaddata.readNyu2('data/demo/img_nyu2.png')
-    test(nyu2_loader, model, out_file = 'data/demo/out.png')
+    path = "/home/adosovit/work/toolboxes/2019/navigation-benchmark/3rdparty/minos/screenshots"
+    in_files, out_files = get_files(path)
+
+    for in_file, out_file in zip(in_files, out_files):
+        # print(in_file, out_file)
+        img_loader = loaddata.readNyu2(in_file)
+        test(img_loader, model, out_file = out_file)
 
 
 
 def test(nyu2_loader, model, out_file = "data/demo/out.png"):
     for i, image in enumerate(nyu2_loader):
+        print(image.size())
+        image = image[:,:3,:,:]
         image = torch.autograd.Variable(image, volatile=True).cuda()
         out = model(image)
+        out_np = out.view(out.size(2),out.size(3)).data.cpu().numpy()
+        out_np = (out_np / np.max(out_np) * 255.).astype(np.uint8)
 
-        matplotlib.image.imsave(out_file, out.view(out.size(2),out.size(3)).data.cpu().numpy())
+        matplotlib.image.imsave(out_file, out_np)
 
 if __name__ == '__main__':
     main()
