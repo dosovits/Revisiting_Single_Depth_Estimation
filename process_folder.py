@@ -43,9 +43,13 @@ def get_files(path, in_template = "{}_color.png", out_template = "{}_pred.png"):
 
 
 def main():
-    model = define_model(is_resnet=False, is_densenet=False, is_senet=True)
+    # model = define_model(is_resnet=False, is_densenet=False, is_senet=True)
+    model = define_model(is_resnet=True, is_densenet=False, is_senet=False)
     model = torch.nn.DataParallel(model).cuda()
-    model.load_state_dict(torch.load('./pretrained_model/model_senet'))
+    model.load_state_dict(torch.load('./pretrained_model/model_resnet'))
+    # model.load_state_dict(torch.load('./trained_models/01_resnet_ft_on_mp3d/checkpoint_0.pth.tar')['state_dict'])
+    model.load_state_dict(torch.load('./trained_models/02_resnet_ft_on_mp3d_lr_4x_smaller/checkpoint_1.pth.tar')['state_dict'])
+    # model.load_state_dict(torch.load('./trained_models/resnet_nyu/checkpoint.pth.tar')['state_dict'])
     model.eval()
 
     path = "/home/adosovit/work/toolboxes/2019/navigation-benchmark/3rdparty/minos/screenshots"

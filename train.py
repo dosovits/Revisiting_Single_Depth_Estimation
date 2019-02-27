@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import argparse
 
 import time
@@ -11,6 +13,7 @@ import util
 import numpy as np
 import sobel
 from models import modules, net, resnet, densenet, senet
+import os
 
 parser = argparse.ArgumentParser(description='PyTorch DenseNet Training')
 parser.add_argument('--epochs', default=20, type=int,
@@ -22,30 +25,41 @@ parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float,
 parser.add_argument('--momentum', default=0.9, type=float, help='momentum')
 parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
                     help='weight decay (default: 1e-4)')
+parser.add_argument('--training-data-csv', default='./data/nyu2_train.csv', type=str,
+                    help='csv file listing training data (default: ./data/nyu2_train.csv)')
+parser.add_argument('--model-name', default='model', type=str,
+                    help='model name, which is the name of the folder to save the results (default: model)')
+parser.add_argument('--init-weights', default='', type=str,
+                    help='file to load the weight initialization from (default: None, train from scratch)')
+parser.add_argument('--architecture', default='senet', type=str, choices=["senet", "densenet", "resnet"],
+                    help='model architecture (default: senet, other options: densenet, resnet)')
 
 
-def define_model(is_resnet, is_densenet, is_senet):
-    if is_resnet:
+def define_model(architecture="senet"):
+    if architecture == "resnet":
         original_model = resnet.resnet50(pretrained = True)
-        Encoder = modules.E_resnet(original_model) 
+        Encoder = modules.E_resnet(original_model)
         model = net.model(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
-    if is_densenet:
+    elif architecture == "densenet":
         original_model = densenet.densenet161(pretrained=True)
         Encoder = modules.E_densenet(original_model)
         model = net.model(Encoder, num_features=2208, block_channel = [192, 384, 1056, 2208])
-    if is_senet:
+    elif architecture == "senet":
         original_model = senet.senet154(pretrained='imagenet')
         Encoder = modules.E_senet(original_model)
         model = net.model(Encoder, num_features=2048, block_channel = [256, 512, 1024, 2048])
+    else:
+        raise Exception("Unknown architecture", architecture)
 
     return model
-   
+
 
 def main():
     global args
     args = parser.parse_args()
-    model = define_model(is_resnet=False, is_densenet=False, is_senet=True)
- 
+    print(args)
+    model = define_model(architecture=args.architecture)
+
     if torch.cuda.device_count() == 8:
         model = torch.nn.DataParallel(model, device_ids=[0, 1, 2, 3, 4, 5, 6, 7]).cuda()
         batch_size = 64
@@ -53,19 +67,26 @@ def main():
         model = torch.nn.DataParallel(model, device_ids=[0, 1, 2, 3]).cuda()
         batch_size = 32
     else:
-        model = model.cuda()
+        model = torch.nn.DataParallel(model).cuda()
         batch_size = 8
+
+    if args.init_weights:
+        model.load_state_dict(torch.load(args.init_weights))
+    checkpoint_path = os.path.join("trained_models", args.model_name)
+    checkpoint_filetemplate = os.path.join(checkpoint_path, 'checkpoint_{}.pth.tar')
+    # print("Batch size", batch_size)
 
     cudnn.benchmark = True
     optimizer = torch.optim.Adam(model.parameters(), args.lr, weight_decay=args.weight_decay)
 
-    train_loader = loaddata.getTrainingData(batch_size)
+    train_loader = loaddata.getTrainingData(batch_size=batch_size, csv_file=args.training_data_csv)
 
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch)
         train(train_loader, model, optimizer, epoch)
-    
-    save_checkpoint({'state_dict': model.state_dict()})
+        save_checkpoint({'state_dict': model.state_dict()}, filename=checkpoint_filetemplate.format(epoch))
+
+    # save_checkpoint({'state_dict': model.state_dict()})
 
 
 def train(train_loader, model, optimizer, epoch):
@@ -81,6 +102,8 @@ def train(train_loader, model, optimizer, epoch):
     end = time.time()
     for i, sample_batched in enumerate(train_loader):
         image, depth = sample_batched['image'], sample_batched['depth']
+        # print(image.shape, depth.shape)
+        # print(image[0,0,::50,::50], depth[0,0,::50,::50])
 
         depth = depth.cuda(async=True)
         image = image.cuda()
@@ -119,14 +142,14 @@ def train(train_loader, model, optimizer, epoch):
 
         batch_time.update(time.time() - end)
         end = time.time()
-   
+
         batchSize = depth.size(0)
 
         print('Epoch: [{0}][{1}/{2}]\t'
           'Time {batch_time.val:.3f} ({batch_time.sum:.3f})\t'
           'Loss {loss.val:.4f} ({loss.avg:.4f})'
           .format(epoch, i, len(train_loader), batch_time=batch_time, loss=losses))
- 
+
 
 def adjust_learning_rate(optimizer, epoch):
     lr = args.lr * (0.1 ** (epoch // 5))
